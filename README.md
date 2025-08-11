@@ -19,9 +19,3 @@ Supports **CIELAB2000** color difference calculations, conflict scoring, and con
    - Conflict list
    - Per-color statistics
    - Conflict groups
-
-## Installation
-1. Clone or download this repository.
-2. Copy the plugin folder into your QGIS profile’s plugin directory:
-
-   **Windows:**  
