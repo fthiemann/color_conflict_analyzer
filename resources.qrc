@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/color_conflict_analyzer" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
