@@ -23,7 +23,7 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction, QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QTextEdit, QLabel, QSpinBox
+from qgis.PyQt.QtWidgets import QAction, QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QTextEdit, QLabel, QSpinBox, QAbstractItemView
 from qgis.core import QgsProject, QgsMapLayer
 from . import analyzer
 from .resources import *
@@ -44,44 +44,136 @@ class DialogPageInput(QDialog):
         self.layerList.setAlternatingRowColors(True)
 
         # Threshold input
-        thresholdLbl = QLabel("ΔE-Schwellwert:")
+        thresholdLbl = QLabel("ΔE-Threshold:")
         self.thresholdSpin = QSpinBox()
         self.thresholdSpin.setRange(1, 100)
         self.thresholdSpin.setValue(15)
 
         # Buttons
-        self.btnAnalyze = QPushButton("Analysieren")
-        self.btnClose = QPushButton("Schließen")
+        self.botAnalyze = QPushButton("Analyse")
+        self.botClose = QPushButton("Close")
 
         # Output area
         self.output = QTextEdit()
         self.output.setReadOnly(True)
-        self.output.setPlaceholderText("Ergebnis erscheint hier…")
+        self.output.setPlaceholderText("Output:")
+
+        # Recoloring part
+        self.colorList = QListWidget()
+        self.colorList.setSelectionMode(self.colorList.NoSelection)
+        self.colorList.setAlternatingRowColors(True)
+        self.colorList.setMinimumHeight(180)
+        self.botRecolor = QPushButton("Recolor Layers")
+
+        # Help text
+        self.helpText = QTextEdit()
+        self.helpText.setReadOnly(True)
+        self.helpText.setMinimumWidth(250)
+        self.helpText.setHtml("""
+        <h3>Color Conflict Analyzer</h3>
+
+        <p>
+        This tool analyzes the colors of layers in the QGIS project for potential
+        conflicts that may occur for people with color vision deficiencies (CVD),
+        and helps prepare targeted recoloring of layers or individual categories.
+        </p>
+
+        <h4>Simulated Color Vision Deficiencies</h4>
+        <p>
+        The tool simulates normal color vision as well as several types of
+        color vision deficiencies:
+        </p>
+        <ul>
+        <li><b>Protan (red weakness/blindness)</b> – protanomaly/protanopia in multiple severity levels</li>
+        <li><b>Deutan (green weakness/blindness)</b> – deuteranomaly/deuteranopia in multiple severity levels</li>
+        <li><b>Tritan (blue weakness/blindness)</b> – tritanomaly/tritanopia in multiple severity levels</li>
+        </ul>
+        <p>
+        For each variant, simulations are run at different severity levels so that
+        critical color pairs can be identified across a spectrum of scenarios.
+        </p>
+
+        <h4>Workflow</h4>
+        <ol>
+        <li><b>Select layers:</b> Choose the layers you want to analyze. The plugin
+            supports <i>single symbol</i>, <i>categorized</i>, and <i>graduated</i> renderers.</li>
+        <li><b>Set ΔE threshold &amp; analyze:</b> The lower the threshold, the stricter
+            the conflict detection. Click <i>Analyze</i> to start the simulations and
+            color distance calculations.</li>
+        <li><b>Review the output:</b> See the section “Output formats” below for details
+            on how to interpret the results.</li>
+        <li><b>Select categories for recoloring:</b> After analysis, a list of selectable
+            entries appears in the format <code>Layer|Label|Renderer</code>. Check the
+            categories you want to adjust and click <i>Recolor</i>.
+            (Currently a placeholder – the actual recoloring logic will follow.)</li>
+        </ol>
+
+        <h4>Output Formats</h4>
+        <ul>
+        <li><b>Individual conflicts:</b> Lists each critically close color pairing,
+            including the calculated ΔE value and the simulation scenario
+            (e.g. Protan/Deutan/Tritan and severity level). This shows which
+            colors are indistinguishable under CVD conditions.</li>
+        <li><b>Conflict groups:</b> Groups together colors (across layers/categories)
+            that conflict with each other, so you can see larger “problem clusters”
+            instead of only isolated pairs.</li>
+        <li><b>Conflict overview per color:</b> For each color/category, a summary is
+            provided with <i>number of conflicts</i>, <i>average ΔE</i>, <i>min/max</i>,
+            and an <i>impact rating</i> (higher for very small ΔE values). This helps
+            prioritize which colors to adjust first.</li>
+        </ul>
+
+        <h4>Notes</h4>
+        <ul>
+        <li>The ΔE threshold controls the sensitivity of conflict detection.</li>
+        <li>The <i>Recolor</i> button is currently a placeholder: it only lists what
+            would be changed. Actual recoloring functionality will be implemented
+            in the next step.</li>
+        </ul>
+        """)
+
+
+
 
         # Layout
         topRow = QHBoxLayout()
-        topRow.addWidget(QLabel("Wähle Layer für die Analyse:"))
+        topRow.addWidget(QLabel("Layers to analyze:"))
         topRow.addStretch()
         topRow.addWidget(thresholdLbl)
         topRow.addWidget(self.thresholdSpin)
 
-        btnRow = QHBoxLayout()
-        btnRow.addStretch()
-        btnRow.addWidget(self.btnAnalyze)
-        btnRow.addWidget(self.btnClose)
+        midRow = QHBoxLayout()
+        midRow.addStretch()
+        midRow.addWidget(self.botAnalyze)
+        midRow.addWidget(self.botClose)
 
-        layout = QVBoxLayout(self)
-        layout.addLayout(topRow)
-        layout.addWidget(self.layerList, 2)
-        layout.addLayout(btnRow)
-        layout.addWidget(QLabel("Ausgabe:"))
-        layout.addWidget(self.output, 4)
+        botRow = QHBoxLayout()
+        botRow.addStretch()
+        botRow.addWidget(self.botRecolor)
 
-        self.btnAnalyze.clicked.connect(self.run_analysis)
-        self.btnClose.clicked.connect(self.accept)
+        # Left side: Layer list, output, color list
+        leftsidelayout = QVBoxLayout()
+        leftsidelayout.addLayout(topRow)
+        leftsidelayout.addWidget(self.layerList, 2)
+        leftsidelayout.addLayout(midRow)
+        leftsidelayout.addWidget(QLabel("Output:"))
+        leftsidelayout.addWidget(self.output, 4)
+        leftsidelayout.addWidget(QLabel("Choose items to recolor:"))
+        leftsidelayout.addWidget(self.colorList, 3)
+        leftsidelayout.addLayout(botRow)
+
+        # Left side and right side with help text
+        mainLayout = QHBoxLayout(self)
+        mainLayout.addLayout(leftsidelayout, 3)
+        mainLayout.addWidget(self.helpText, 1)
+
+        self.botAnalyze.clicked.connect(self.run_analysis)
+        self.botClose.clicked.connect(self.accept)
+        self.botRecolor.clicked.connect(self.run_recoloring)
 
         self.populate_layers()
 
+    #to fill the list of layers
     def populate_layers(self):
         self.layerList.clear()
         for lid, layer in QgsProject.instance().mapLayers().items():
@@ -92,6 +184,7 @@ class DialogPageInput(QDialog):
                 item.setData(Qt.UserRole, lid)  # Layer-ID speichern
                 self.layerList.addItem(item)
 
+    #to get the ids of the selected layers
     def selected_layer_ids(self):
         ids = []
         for i in range(self.layerList.count()):
@@ -99,20 +192,96 @@ class DialogPageInput(QDialog):
             if it.checkState() == Qt.Checked:
                 ids.append(it.data(Qt.UserRole))
         return ids
+    
+    #to fill the list of items to be recolored
+    def populate_color_items(self, selected_layer_ids):
+        self.colorList.clear()
+        all_layers = QgsProject.instance().mapLayers()
+
+        for lid in selected_layer_ids:
+            layer = all_layers.get(lid)
+            if not layer:
+                continue
+
+            renderer_type = getattr(layer.renderer(), "type", lambda: "")()
+            name = layer.name()
+
+            if renderer_type == "singleSymbol":
+                # ein einziger Eintrag
+                display = f"{name}|single Symbol|singleSymbol"
+                item = QListWidgetItem(display)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Unchecked)
+                # Metadaten für späteres Neufärben
+                item.setData(Qt.UserRole, {
+                    "layer_id": lid,
+                    "renderer": "singleSymbol",
+                    "label": "single Symbol"
+                })
+                self.colorList.addItem(item)
+
+            elif renderer_type == "categorizedSymbol":
+                for cat in layer.renderer().categories():
+                    label = cat.label()
+                    display = f"{name}|{label}|categorizedSymbol"
+                    item = QListWidgetItem(display)
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
+                    item.setData(Qt.UserRole, {
+                        "layer_id": lid,
+                        "renderer": "categorizedSymbol",
+                        "label": label
+                    })
+                    self.colorList.addItem(item)
+
+            elif renderer_type == "graduatedSymbol":
+                for rng in layer.renderer().ranges():
+                    label = rng.label()
+                    display = f"{name}|{label}|graduatedSymbol"
+                    item = QListWidgetItem(display)
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
+                    item.setData(Qt.UserRole, {
+                        "layer_id": lid,
+                        "renderer": "graduatedSymbol",
+                        "label": label
+                    })
+                    self.colorList.addItem(item)
+    
+
+    def selected_color_items(self):
+        result = []
+        for i in range(self.colorList.count()):
+            it = self.colorList.item(i)
+            if it.checkState() == Qt.Checked:
+                result.append(it.data(Qt.UserRole))
+        return result
+
+
 
 # Connects UI to code
     def run_analysis(self):
         ids = self.selected_layer_ids()
         if not ids:
-            self.output.setPlainText("Es muss mindestens ein Layer ausgewählt sein.")
+            self.output.setPlainText("You must select at least one layer.")
             return
         threshold = float(self.thresholdSpin.value())
-        self.output.setPlainText("Analysiere… bitte warten…")
+        self.output.setPlainText("Analyzing...")
         try:
             report = analyzer.calculate_conflicts(ids, conflict_threshold=threshold)
             self.output.setPlainText(report)
+            self.populate_color_items(ids)
         except Exception as e:
-            self.output.setPlainText(f"Fehler bei der Analyse:\n{e}")
+            self.output.setPlainText(f"Error calculating conflicts\n{e}")
+
+    
+    def run_recoloring(self):
+        selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
+        try:
+            report = analyzer.recolor_layers(selections)
+            self.output.append("\n" + report)
+        except Exception as e:
+            self.output.append(f"\n❌ Error recoloring {e}")
 
 
 

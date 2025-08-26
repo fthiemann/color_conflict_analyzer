@@ -12,7 +12,7 @@ from qgis.core import QgsProject
 ########################
 
 def create_cvd_spaces():
-    # Definiere den Eingabefarbraum als Dictionary
+    # colorspace as dict
     # normal / prot / deuter / trit
     cvd_spaces_list = []
     # normal vision
@@ -54,7 +54,7 @@ def create_cvd_spaces():
 
 
 ########################
-#Funktionen
+#functions
 ########################
 
 def hexToCieLab(layer, cvdSpace):
@@ -62,26 +62,26 @@ def hexToCieLab(layer, cvdSpace):
     col_list = []
     #check for diffrent renderer types
     if layer.renderer().type() == 'singleSymbol':
-        #Get Hexcode
+        #get Hexcode
         hexcode = layer.renderer().symbol().color().name()
-        #Umwandlung in RGB 0-1 Werte
+        #convert to RGB 0-1 values
         rgb1 = matcolors.hex2color(hexcode)
-        #Umwandlung in CVD-Farbe
+        #convert to CVD color
         simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
-        #Umwandlung in CIE-LAB
+        #convert to CIE-LAB
         cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
         col_list.append({'name': layer.name(), 'renderer': 'singleSymbol', 'label': 'single Symbol', 'cieLab': cieLab, 'CVD': cvdSpace})
     elif layer.renderer().type() == 'categorizedSymbol':
         #for each category, get the symbol
         for category in layer.renderer().categories():
             label = category.label()
-            #Get Hexcode
+            #get Hexcode
             hexcode = category.symbol().color().name()
-            #Umwandlung in RGB 0-1 Werte
+            #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
-            #Umwandlung in CVD-Farbe
+            #convert to CVD color
             simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
-            #Umwandlung in CIE-LAB
+            #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'name': layer.name(), 'renderer': 'categorizedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
     elif layer.renderer().type() == 'graduatedSymbol':
@@ -89,41 +89,42 @@ def hexToCieLab(layer, cvdSpace):
         for graduated in layer.renderer().ranges():
             #get Label
             label = graduated.label()
-            #Get Hexcode
+            #get Hexcode
             hexcode = graduated.symbol().color().name()
-            #Umwandlung in RGB 0-1 Werte
+            #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
-            #Umwandlung in CVD-Farbe
+            #convert to CVD color
             simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
-            #Umwandlung in CIE-LAB
+            #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'name': layer.name(), 'renderer': 'graduatedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
     # else:
         # print(f"Layer '{layer.name()}' has an unsupported type of renderer")
     return col_list
 
-# Informationen über Farbe um richtigem Layer (Kategorie) zuzuordnen
+#helper to create a unique key for each color item
 def create_color_key(item):
     return f"{item['name']}|{item['label']}|{item['renderer']}"
 
+#helper to determine level of conflict
 def level_of_conflict(delta_e):
     if delta_e < 5:
-        return "!!!Kritischer Konflikt!!!"
+        return '!!!Critical conflict!!!'
     elif delta_e < 10:
-        return "!Großer Konflikt!"
+        return "!Significant Konflikt!"
     elif delta_e < 15:
-        return "Mittlerer Konflikt"
+        return "Moderate conflict"
     else:
-        return "Keine Konflikte"
+        return "Minor or no conflict"
 
 
 ########################
-#Creating base data
+#creating base data
 ########################
 
 def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 
-    # Alle Layer aus dem aktuellen QGIS-Projekt holen
+    #retrieve all layers in project
     all_layers = QgsProject.instance().mapLayers()
 
     #selected layers
@@ -132,7 +133,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         if layer_id in all_layers:
             layers.append(all_layers[layer_id])
 
-    # Simulierung aller Layer mit allen Farbräumen
+    #simulate colors in different color vision deficiency spaces
     cvd_spaces_list = create_cvd_spaces()
     sim_results = {}
     for layer in layers:
@@ -144,14 +145,13 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 
 
     ########################
-    #Konfliktberechnung
+    #conflicts
     ########################
 
-    #Variablen
-    conflicts = []      #Liste an Farbkonflikten nach deltaE-Berechnung
+    #variables
+    conflicts = []      #list of conflicts found
 
-    # Annahme: sim_results ist wie folgt aufgebaut:
-    # sim_results[layer_name] = [ {'name': ..., 'cieLab': ..., 'CVD': ...}, ... ]
+    #sim_results is a dict with layer names as keys and list of lists as values
     layer_names = list(sim_results.keys())
     num_layers = len(layer_names)
     num_spaces = len(cvd_spaces_list)
@@ -160,18 +160,13 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         for cvd in cvd_spaces_list
         ]
 
-    # Layer <-> Layer
+    #layer <-> layer
     for i in range(num_layers):
         for j in range(i+1, num_layers):
             name1 = layer_names[i]
             name2 = layer_names[j]
-            # print("="*60)
-            # print(f"Vergleich: Layer '{name1}' ↔ Layer '{name2}'")
-
             for idx, header in enumerate(col_headers):
-                # print(f"\nFarbraum: {header}")
-                # print("-" * 50)
-
+                
                 list1 = sim_results[name1][idx]
                 list2 = sim_results[name2][idx]
 
@@ -182,26 +177,12 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
                         lab2 = LabColor(lab_l=item2['cieLab'][0], lab_a=item2['cieLab'][1], lab_b=item2['cieLab'][2])
                         delta_e = delta_e_cie2000(lab1, lab2)
                         
-                        #Konflikte in Liste aufnehmen
+                        # if conflict, add to list
                         if delta_e < conflict_threshold:
                             conflicts.append({'color1': item1, 'color2': item2, 'delta_e': delta_e})
-                        
-                            
-                        
-                        
-                        # hier die Anpassung:
-                        layer1     = item1['name']
-                        label1  = item1['label']
-                        layer2     = item2['name']
-                        label2  = item2['label']
 
-                        # print(f"{layer1}:{label1} ↔ {layer2}:{label2}: ΔE = {delta_e:.2f}")
-
-    #Konfliktberechnung Kategorie <-> Kategorie
+    #category <-> category within the same layer
     for layer_name in layer_names:
-        # print("=" * 60)
-        # print(f"Interner Vergleich innerhalb Layer: '{layer_name}'")
-        
         for idx, header in enumerate(col_headers):
             # print(f"\nFarbraum: {header}")
             # print("-" * 50)
@@ -291,35 +272,35 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
     ########################
 
     output = []
-    output.append("🔍 Analyse der Farbkonflikte abgeschlossen!\n")
+    output.append("Fnished analysis:\n")
     
     if conflicts:
-        output.append("Einzelkonflikte:")
+        output.append("Conflicts:")
         for conflict in conflicts:
             item1 = conflict['color1']
             item2 = conflict['color2']
             delta_e = conflict['delta_e']
             cvd_info = f"{item1['CVD'].get('cvd_type', 'normal')} ({item1['CVD'].get('severity', '')})"
-            output.append(f"🔸 {level_of_conflict(delta_e)} [{cvd_info}] {item1['name']} ({item1['label']}) ↔ {item2['name']} ({item2['label']}): ΔE = {delta_e:.2f}")
+            output.append(f"- {level_of_conflict(delta_e)} [{cvd_info}] {item1['name']} ({item1['label']}) ↔ {item2['name']} ({item2['label']}): ΔE = {delta_e:.2f}")
     else:
-        output.append("Keine Farbkonflikte gefunden.")
+        output.append("No conflicts found.")
 
     # output conflict groups
-    output.append("\n🔗 Konfliktgruppen:")
+    output.append("\n🔗 Conflict groups:")
     if groups:
         for i, group in enumerate(groups, start=1):
-            output.append(f"Gruppe {i}: " + ", ".join(group))
+            output.append(f"Group {i}: " + ", ".join(group))
     else:
-        output.append("Keine Konfliktgruppen gefunden.")
+        output.append("No Groups found.")
 
     #conflict summary
-    output.append("\n📊 Konfliktübersicht pro Farbe:")
+    output.append("\n📊 Conflict overview per color:")
     if conflicts_summary:
         for key, val in sorted(conflicts_summary.items(), key=lambda x: (-x[1]['count'], -x[1]['sum_delta'])):
             avg_delta = val['sum_delta'] / val['count']
-            output.append(f"🔸 {key} → Konflikte: {val['count']}, ⌀ΔE: {avg_delta:.2f}, min: {val['min']:.2f}, max: {val['max']:.2f}, Rating: {conflict_impact.get(key, 0.0):.2f}")
+            output.append(f"- {key} → Konflikte: {val['count']}, ⌀ΔE: {avg_delta:.2f}, min: {val['min']:.2f}, max: {val['max']:.2f}, Rating: {conflict_impact.get(key, 0.0):.2f}")
     else:
-        output.append("Keine Konflikte pro Farbe gefunden.")
+        output.append("No conclict overview available.")
 
 
    
@@ -330,7 +311,21 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
     return "\n".join(output)
 
 
+########################
+#Recoloring
+########################
 
+def recolor_layers(selections):
+    if not selections:
+        return "⚠️ No items selected."
+
+    lines = ["🎨 Recolor-Stub – folgende Elemente würden angepasst:"]
+
+    for sel in selections:
+        lines.append(f" - LayerID={sel['layer_id']}, Renderer={sel['renderer']}, Label={sel['label']}")
+
+    # später: hier Logik zum tatsächlichen Umfärben einbauen
+    return "\n".join(lines)
 
 
 
