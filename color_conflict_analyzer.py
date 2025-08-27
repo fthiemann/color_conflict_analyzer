@@ -48,6 +48,10 @@ class DialogPageInput(QDialog):
         self.thresholdSpin = QSpinBox()
         self.thresholdSpin.setRange(1, 100)
         self.thresholdSpin.setValue(15)
+        thresholdrecolorLbl = QLabel("Recoloring-Threshold:")
+        self.thresholdrecolorSpin = QSpinBox()
+        self.thresholdrecolorSpin.setRange(1, 100)
+        self.thresholdrecolorSpin.setValue(15)
 
         # Buttons
         self.botAnalyze = QPushButton("Analyse")
@@ -56,7 +60,7 @@ class DialogPageInput(QDialog):
         # Output area
         self.output = QTextEdit()
         self.output.setReadOnly(True)
-        self.output.setPlaceholderText("Output:")
+        self.output.setPlaceholderText("The analysis results will appear here.")
 
         # Recoloring part
         self.colorList = QListWidget()
@@ -141,6 +145,8 @@ class DialogPageInput(QDialog):
         topRow.addStretch()
         topRow.addWidget(thresholdLbl)
         topRow.addWidget(self.thresholdSpin)
+        topRow.addWidget(thresholdrecolorLbl)
+        topRow.addWidget(self.thresholdrecolorSpin)
 
         midRow = QHBoxLayout()
         midRow.addStretch()
@@ -156,7 +162,7 @@ class DialogPageInput(QDialog):
         leftsidelayout.addLayout(topRow)
         leftsidelayout.addWidget(self.layerList, 2)
         leftsidelayout.addLayout(midRow)
-        leftsidelayout.addWidget(QLabel("Output:"))
+        leftsidelayout.addWidget(QLabel("Results:"))
         leftsidelayout.addWidget(self.output, 4)
         leftsidelayout.addWidget(QLabel("Choose items to recolor:"))
         leftsidelayout.addWidget(self.colorList, 3)
@@ -277,9 +283,10 @@ class DialogPageInput(QDialog):
     
     def run_recoloring(self):
         selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
+        thresholdrecolor = float(self.thresholdrecolorSpin.value())
         try:
-            report = analyzer.recolor_layers(selections)
-            self.output.append("\n" + report)
+            report = analyzer.recolor_layers(selections, threshold = thresholdrecolor)
+            self.output.append("\n" + str( report))
         except Exception as e:
             self.output.append(f"\n❌ Error recoloring {e}")
 
