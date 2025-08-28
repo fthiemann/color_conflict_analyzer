@@ -48,6 +48,10 @@ class DialogPageInput(QDialog):
         self.thresholdSpin = QSpinBox()
         self.thresholdSpin.setRange(1, 100)
         self.thresholdSpin.setValue(15)
+        recolorthresholdLbl = QLabel("Recoloring-Threshold:")
+        self.recolorthresholdSpin = QSpinBox()
+        self.recolorthresholdSpin.setRange(1, 100)
+        self.recolorthresholdSpin.setValue(15)
 
         # Buttons
         self.botAnalyze = QPushButton("Analyse")
@@ -141,6 +145,8 @@ class DialogPageInput(QDialog):
         topRow.addStretch()
         topRow.addWidget(thresholdLbl)
         topRow.addWidget(self.thresholdSpin)
+        topRow.addWidget(recolorthresholdLbl)
+        topRow.addWidget(self.recolorthresholdSpin)
 
         midRow = QHBoxLayout()
         midRow.addStretch()
@@ -278,7 +284,7 @@ class DialogPageInput(QDialog):
     def run_recoloring(self):
         selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
         try:
-            report = analyzer.recolor_layers(selections)
+            report = analyzer.recolor_layers(selections, recolor_threshold=float(self.recolorthresholdSpin.value()))
             self.output.append("\n" + report)
         except Exception as e:
             self.output.append(f"\n❌ Error recoloring {e}")

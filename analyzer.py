@@ -67,7 +67,7 @@ def hexToCieLab(layer, cvdSpace):
         #convert to RGB 0-1 values
         rgb1 = matcolors.hex2color(hexcode)
         #convert to CVD color
-        simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
+        simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
         #convert to CIE-LAB
         cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
         col_list.append({'name': layer.name(), 'renderer': 'singleSymbol', 'label': 'single Symbol', 'cieLab': cieLab, 'CVD': cvdSpace})
@@ -80,7 +80,7 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
+            simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'name': layer.name(), 'renderer': 'categorizedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
@@ -94,7 +94,7 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, cvdSpace, "sRGB1")
+            simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'name': layer.name(), 'renderer': 'graduatedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
@@ -315,7 +315,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 #Recoloring
 ########################
 
-def recolor_layers(selections):
+def recolor_layers(selections, recolor_threshold):
     if not selections:
         return "⚠️ No items selected."
 
