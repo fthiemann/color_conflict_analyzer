@@ -268,14 +268,14 @@ class DialogPageInput(QDialog):
 # Connects UI to code
     def run_analysis(self):
         ids = self.selected_layer_ids()
-        if not ids:
-            self.output.setPlainText("You must select at least one layer.")
+        if len(ids) <= 1:
+            self.output.setPlainText("\n You must select at least two layers.")
             return
         threshold = float(self.thresholdSpin.value())
         self.output.setPlainText("Analyzing...")
         try:
             report = analyzer.calculate_conflicts(ids, conflict_threshold=threshold)
-            self.output.setPlainText(report)
+            self.output.setPlainText(report["report"])
             self.populate_color_items(ids)
         except Exception as e:
             self.output.setPlainText(f"Error calculating conflicts\n{e}")
@@ -283,6 +283,9 @@ class DialogPageInput(QDialog):
     
     def run_recoloring(self):
         selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
+        if not selections:
+            self.output.append("\n You must select at least one item to recolor.")
+            return
         try:
             report = analyzer.recolor_layers(selections, recolor_threshold=float(self.recolorthresholdSpin.value()))
             self.output.append("\n" + report)
