@@ -3,10 +3,11 @@ import matplotlib.colors as matcolors
 from colorspacious import cspace_convert
 import numpy as np
 from colormath.color_objects import LabColor
-from colormath.color_diff import delta_e_cie2000
+#from colormath.color_diff import delta_e_cie2000
 from collections import defaultdict
 from qgis.core import QgsProject
 from math import sqrt, cos, sin, pi
+from skimage.color import deltaE_ciede2000 as delta_e_cie2000
 
 ########################
 #colSpaces
@@ -369,8 +370,109 @@ def create_unselected_layers(selections):
 
 ############## building candidates ##############
 
-def in_gamut_sRGB(rgb):
-    return all(0.0 <= c <= 1.0 for c in rgb)
+def in_gamut_sRGB(rgb, eps = 1e-9):
+    return np.all((rgb >= -eps) & (rgb <= 1 + eps))
+
+
+#fibonacci sphere algorithm to generate directions on the sphere around the to-be-changed color
+def golden_sphere_directions( k = 32):
+    directions = []
+    phi = (1 +sqrt(5)) / 2  # golden ratio
+    golden_angle = 2 * pi * (1 - 1 / phi)
+    for i in range(k):
+        z = 1 - 2*(i+0.5)/k  # z goes from 1 to -1
+        r = sqrt(1 - z*z)  # radius at z
+        theta = golden_angle * i # golden angle increment
+        x = r * cos(theta)
+        y = r * sin(theta)
+        v = np.array([x, y, z])
+        v /= np.linalg.norm(v)  # normalize to unit vector
+        directions.append(v)
+    return directions
+
+#get first step outside sphere
+#original color
+#direction: direction vector
+#threshold: recolor threshold
+#t_max: maximum distance to search
+#step: step size
+#pad: factor to increase the distance a bit to be sure to be outside the sphere
+def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, step=1.0, pad = 1.02):
+    t = 0.0 #initial distance
+    last_ok = None #last point inside the sphere
+    original_lab = LabColor(*original_color)
+    while t <= t_max:
+        candidate_lab = original_color + direction * t
+        #convert to rgb
+        candidate_rgb1 = cspace_convert(candidate_lab, "CIELab", "sRGB1")
+        ### check if in gamut ###
+        if not in_gamut_sRGB(candidate_rgb1):
+            return (None, None)   #if it goes out of gamut, stop searching in this direction, diregarding re-entry (not likely)
+        #distance to original color
+        delta_e_to_original = delta_e_cie2000(original_lab, LabColor(*candidate_lab))
+        if delta_e_to_original >= threshold:
+            #if after first step outside sphere, return a small distance
+            if last_ok is None:
+                t_low = max(0.0, t - step)
+                t_high = t
+            else:
+                t_low = last_ok[0]
+                t_high = t
+            ### Bisektion ### to find exact point, 10 iterations for accruacy
+            for _ in range(10):
+                t_mid = (t_low + t_high) / 2.0
+                mid_cieLab = original_color + direction * t_mid
+                if not in_gamut_sRGB(cspace_convert(mid_cieLab, "CIELab", "sRGB1")):
+                    t_high = t_mid
+                    continue
+                if delta_e_cie2000(LabColor(*original_color), LabColor(*mid_cieLab)) >= threshold:
+                    t_high = t_mid
+                else:
+                    t_low = t_mid
+            t_star = t_high * pad
+            x_star = original_color + direction * t_star
+            if in_gamut_sRGB(cspace_convert(x_star, "CIELab", "sRGB1")):
+                return (x_star, t_star)
+            return (None, None)
+        else:
+            last_ok = (t, delta_e_to_original)
+            t += step
+    return (None, None)
+
+#### Outward push ####
+#push each color outwards until it is outside the threshold for all keep colors and in gamut
+#original_color: the color to be changed
+#keep_colors_by_view:
+def lab_candidates_outward_push(original_color, keep_colors_by_view):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ############## main function to recolor layers ##############
