@@ -369,8 +369,8 @@ def check_cvd_conflicts(candidate_lab, conflict_colors_lab, cvd_spaces, threshol
     return True
 
 
-#selected_layer_ids = Layer that were used for analysis in first step,
-#seleted_layers_recolor_ids = layers that should be recolored
+#selected_layer_ids for Layer that were used for analysis in first step,
+#seleted_layers_recolor_ids for layers that should be recolored
 def get_existing_color_lab(selected_layer_ids, selected_layers_recolor_ids):
 
     all_layers = QgsProject.instance().mapLayers()
@@ -514,6 +514,10 @@ def recolor_layers(selections, recolor_threshold):
                 
                     all_conflicts = conflict_colors_lab + used_candidates
                     min_distance = float('inf')
+                    #check if cvd conflict with already used candidates
+                    if not check_cvd_conflicts(candidate_lab, used_candidates, cvd_spaces, recolor_threshold):
+                        continue
+
                     for conflict_lab in all_conflicts:
                         delta_e = delta_e_cie2000(LabColor(*candidate_lab), LabColor(*conflict_lab))
                         if delta_e < min_distance:
