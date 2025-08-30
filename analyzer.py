@@ -6,6 +6,7 @@ from colormath.color_objects import LabColor
 from colormath.color_diff import delta_e_cie2000
 from collections import defaultdict
 from qgis.core import QgsProject
+from math import sqrt, cos, sin, pi
 
 ########################
 #colSpaces
@@ -16,7 +17,7 @@ def create_cvd_spaces():
     # normal / prot / deuter / trit
     cvd_spaces_list = []
     # normal vision
-    cvd_spaces_list.append({"name": "sRGB1"})
+    cvd_spaces_list.append({"name": "sRGB1", "cvd_type": "normal", "severity": 0})
     #protanomaly and protanopia
     sev = 25
     for i in range(4):
@@ -67,10 +68,10 @@ def hexToCieLab(layer, cvdSpace):
         #convert to RGB 0-1 values
         rgb1 = matcolors.hex2color(hexcode)
         #convert to CVD color
-        simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
+        simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
         #convert to CIE-LAB
         cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
-        col_list.append({'name': layer.name(), 'renderer': 'singleSymbol', 'label': 'single Symbol', 'cieLab': cieLab, 'CVD': cvdSpace})
+        col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'singleSymbol', 'label': 'single Symbol', 'cieLab': cieLab, 'CVD': cvdSpace, 'severity': cvdSpace.get('severity', 0)})
     elif layer.renderer().type() == 'categorizedSymbol':
         #for each category, get the symbol
         for category in layer.renderer().categories():
@@ -80,10 +81,10 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
+            simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
-            col_list.append({'name': layer.name(), 'renderer': 'categorizedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
+            col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'categorizedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace,  'severity': cvdSpace.get('severity', 0)})
     elif layer.renderer().type() == 'graduatedSymbol':
         #for each graduated category, get the symbol
         for graduated in layer.renderer().ranges():
@@ -94,10 +95,10 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, "srgb1", cvdSpace)
+            simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
-            col_list.append({'name': layer.name(), 'renderer': 'graduatedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace})
+            col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'graduatedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace,  'severity': cvdSpace.get('severity', 0)})
     # else:
         # print(f"Layer '{layer.name()}' has an unsupported type of renderer")
     return col_list
@@ -315,16 +316,106 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 #Recoloring
 ########################
 
+############## helper functions ##############
+
+#create list of colors to keep + cvd simulations
+#input has to be the layers, that were not ticked
+def create_keeping_colors_with_cvd(selections):
+    #colors to keep
+    keep_colors = []
+    cvd_spaces = create_cvd_spaces()
+    for item in selections:
+        layer_id = item['layer_id']
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if layer:
+            for cvd_space in cvd_spaces:
+                cieLab = hexToCieLab(layer, cvd_space)
+                keep_colors.extend(cieLab)
+    return keep_colors
+
+#create list of colors to be recolored
+#input has to be layers that were ticked
+def create_recoloring_colors(selections):
+    #colors to be recolored
+    recolor_colors = []
+    hexcode = None
+    for item in selections:
+        item_layer = QgsProject.instance().mapLayer(item['layer_id'])
+        #get hexcode from selected layer
+        if item_layer.renderer().type() == 'singleSymbol':
+            hexcode = item_layer.renderer().symbol().color().name()
+        elif item_layer.renderer().type() == 'categorizedSymbol':
+            for category in item_layer.renderer().categories():
+                if category.label() == item['label']:
+                    hexcode = category.symbol().color().name()
+        elif item_layer.renderer().type() == 'graduatedSymbol':
+            for graduated in item_layer.renderer().ranges():
+                if graduated.label() == item['label']:
+                    hexcode = graduated.symbol().color().name()
+        rgb1 = matcolors.hex2color(hexcode)
+        cieLab = cspace_convert(rgb1, "sRGB1", "CIELab")
+        recolor_colors.append({'layer_id': item_layer.id(), 'name': item_layer.name(), 'renderer': item['renderer'], 'label': item['label'], 'cieLab': cieLab, 'cvd': "normal", 'severity': 0, 'hex': hexcode})
+    return recolor_colors
+                    
+#reverse selection to get unselected layers
+def create_unselected_layers(selections):
+    all_layers = QgsProject.instance().mapLayers().values()
+    selected_ids = [item['layer_id'] for item in selections]
+    unselected_layers = []
+    for layer in all_layers:
+        if layer.id() not in selected_ids:
+            unselected_layers.append(layer)
+    return unselected_layers
+
+############## building candidates ##############
+
+def in_gamut_sRGB(rgb):
+    return all(0.0 <= c <= 1.0 for c in rgb)
+
+
+############## main function to recolor layers ##############
+
 def recolor_layers(selections, recolor_threshold):
     if not selections:
         return "⚠️ No items selected."
+    
+    #output lines
+    lines = []
+    lines.append("Starting recoloring...\n")
 
-    lines = ["🎨 Recolor-Stub – folgende Elemente würden angepasst:"]
+    all_layers = QgsProject.instance().mapLayers()
+    #create list of layers that were not ticked
+    unselected_layers = create_unselected_layers(selections)
+                
+    #list of colors to keep + cvd simulations
+    #input has to be the layers, that were not ticked
+    keep_colors = create_keeping_colors_with_cvd(unselected_layers)
+    #list of colors to be recolored
+    #input has to be layers that were ticked
+    recolor_colors = create_recoloring_colors(selections)
 
-    for sel in selections:
-        lines.append(f" - LayerID={sel['layer_id']}, Renderer={sel['renderer']}, Label={sel['label']}")
+    #output info
+    lines.append("Colors to be kept:")
+    if keep_colors:
+        for item in keep_colors:
+            if item['cvd'] == "normal":
+                lines.append(
+                    f"- layer_name={item['name']} | renderer={item['renderer']} | label={item['label']} | ")
+    else:
+        lines.append("(leer)")
 
-    # später: hier Logik zum tatsächlichen Umfärben einbauen
+    lines.append("\nColors to be recolored:")
+    if recolor_colors:
+        for item in recolor_colors:
+            lines.append(f"- layer_name={item['name']} | renderer={item['renderer']} | label={item['label']} | hex={item['hex']}")
+    else:
+        lines.append("(leer)")
+
+
+
+
+
+
     return "\n".join(lines)
 
 

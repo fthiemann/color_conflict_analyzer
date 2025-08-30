@@ -51,7 +51,7 @@ class DialogPageInput(QDialog):
         recolorthresholdLbl = QLabel("Recoloring-Threshold:")
         self.recolorthresholdSpin = QSpinBox()
         self.recolorthresholdSpin.setRange(1, 100)
-        self.recolorthresholdSpin.setValue(15)
+        self.recolorthresholdSpin.setValue(20)
 
         # Buttons
         self.botAnalyze = QPushButton("Analyse")
@@ -220,6 +220,7 @@ class DialogPageInput(QDialog):
                 item.setCheckState(Qt.Unchecked)
                 # Metadaten für späteres Neufärben
                 item.setData(Qt.UserRole, {
+                    "name": name,
                     "layer_id": lid,
                     "renderer": "singleSymbol",
                     "label": "single Symbol"
