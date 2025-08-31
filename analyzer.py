@@ -398,18 +398,20 @@ def golden_sphere_directions( k = 32):
 #step: step size
 #pad: factor to increase the distance a bit to be sure to be outside the sphere
 def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, step=1.0, pad = 1.02):
+    oc = np.asarray(original_color, dtype = float)
+    v = np.asarray(direction, dtype = float)
     t = 0.0 #initial distance
     last_ok = None #last point inside the sphere
-    original_lab = LabColor(*original_color)
+    #original_lab = LabColor(*original_color)
     while t <= t_max:
-        candidate_lab = original_color + direction * t
+        candidate_lab = oc + v * t
         #convert to rgb
         candidate_rgb1 = cspace_convert(candidate_lab, "CIELab", "sRGB1")
         ### check if in gamut ###
         if not in_gamut_sRGB(candidate_rgb1):
             return (None, None)   #if it goes out of gamut, stop searching in this direction, diregarding re-entry (not likely)
         #distance to original color
-        delta_e_to_original = delta_e_cie2000(original_lab, LabColor(*candidate_lab))
+        delta_e_to_original = float(delta_e_cie2000(oc[None,:], candidate_lab[None,:])[0,0])
         if delta_e_to_original >= threshold:
             #if after first step outside sphere, return a small distance
             if last_ok is None:
@@ -421,16 +423,16 @@ def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, 
             ### Bisektion ### to find exact point, 10 iterations for accruacy
             for _ in range(10):
                 t_mid = (t_low + t_high) / 2.0
-                mid_cieLab = original_color + direction * t_mid
+                mid_cieLab = oc + v * t_mid
                 if not in_gamut_sRGB(cspace_convert(mid_cieLab, "CIELab", "sRGB1")):
                     t_high = t_mid
                     continue
-                if delta_e_cie2000(LabColor(*original_color), LabColor(*mid_cieLab)) >= threshold:
+                if float(delta_e_cie2000(oc[None,:], mid_cieLab[None,:])[0,0]) >= threshold:
                     t_high = t_mid
                 else:
                     t_low = t_mid
             t_star = t_high * pad
-            x_star = original_color + direction * t_star
+            x_star = oc + v * t_star
             if in_gamut_sRGB(cspace_convert(x_star, "CIELab", "sRGB1")):
                 return (x_star, t_star)
             return (None, None)
@@ -451,7 +453,7 @@ def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
     arr = keep_colors_by_view.get('normal')
     if arr is not None and len(arr):
         m = float(np.min(delta_e_cie2000(np.array(candidate_lab_array, ndmin = 2), arr)))
-        min_dist = min(min_de, m)
+        min_de = min(min_de, m)
 
     #cvds
     candidate_rgb = cspace_convert(candidate_lab_array, "CIELab", "sRGB1")
@@ -463,9 +465,9 @@ def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
         cvd_space = {"name": "sRGB1+CVD", "cvd_type": cvd_type, "severity": sev}
         candidate_cvd_rgb = cspace_convert(candidate_rgb, "sRGB1", cvd_space)
         candidate_cvd_lab = cspace_convert(candidate_cvd_rgb, "sRGB1", "CIELab")
-        m = min(delta_e_cie2000(np.array(candidate_cvd_lab, ndmin =2), arr))
-        min_dist = (min_de, m)
-    return min_dist
+        m = delta_e_cie2000(np.asarray(candidate_cvd_lab, dtype = float)[None,:], arr)
+        min_de = (min_de, float(np.min(m)))
+    return min_de
 
 #pushing alongside directional vector until in gamut && outside threshold of keeping_colors
 #original_color
@@ -493,7 +495,7 @@ def outward_push_until_free(original_color, direction_lab, candidate_lab, thresh
             return candidate
         #otherwise go a step further outside
         t_add += step
-        candidate = original_color + t_add * direction_lab + base_offset
+        candidate = oc + t_add * v + base_offset
     return None
 
 #### build candidates ####
@@ -505,7 +507,7 @@ def build_keep_arrays_by_view(keep_colors):
         key = 'normal' if item.get('cvd', 'normal') == 'normal' else f"{item['cvd']}:{int(item.get('severity', 0))}"
         output.setdefault(key, []).append(np.array(item['cieLab'], dtype = float))
     for k in list (output.keys()):
-        output[k] = np.vstack(output[k]) if len(output[k]) else np.empty((0,3))
+        output[k] = np.vstack(output[k]) if len(output[k]) else np.empty((0,3), dtype=float)
     return output
 
 
@@ -515,7 +517,7 @@ def build_keep_arrays_by_view(keep_colors):
 #kdirections: count of directions used in direction search
 #pad: padding around sphere
 #step_ring: size of step
-def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0):
+def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 120):
     target_item_lab = np.array(target_item['cieLab'], dtype = float)
     keep_by_view = build_keep_arrays_by_view(keep_colors)
 
@@ -524,7 +526,7 @@ def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_d
         x0, t0 = get_step_outside_sphere(target_item_lab,  v, threshold, step = step_ring, pad = pad)
         if x0 is None:
             continue
-        x = outward_push_until_free(target_item_lab, v, x0, threshold, keep_by_view)
+        x = outward_push_until_free(target_item_lab, v, x0, threshold, keep_by_view, step = step_push, max_push=max_push)
         if x is not None:
             candidates.append(x)
     return candidates
@@ -582,7 +584,7 @@ def add_candidate_to_keep_by_view(keep_by_view, candidate_lab):
 def difficulty_of_target(original_lab, keep_by_view):
     return lab_candidates_min_distance_all_views(np.asarray(original_lab, dtype = float), keep_by_view)
 
-def recolor_targets_greedy(target_items, keep_colors, threshold, kdirections = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 120):
+def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 120):
     results = []
 
     keep_by_view = build_keep_arrays_by_view(keep_colors)
@@ -592,7 +594,7 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, kdirections = 3
 
     for target in targets_sorted:
         #generate candidates
-        candidates = generate_ring_candidates_for_target(target, keep_colors,threshold, kdirections = kdirections, pad = pad, step_ring = step_ring)
+        candidates = generate_ring_candidates_for_target(target, keep_colors,threshold, k_directions = k_directions, pad = pad, step_ring = step_ring)
         if not candidates:
             results.append({'target': target, 'best': None, 'status': 'no-candidate'})
             continue
@@ -606,7 +608,7 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, kdirections = 3
         #found candidate and appended
         results.append({'target': target, 'best': best, 'status': 'ok'})
 
-        #add best candidate to keep_colors
+        #add best candidate to keep_by_view
         add_candidate_to_keep_by_view(keep_by_view, best['lab'])
 
     return results
@@ -676,7 +678,29 @@ def recolor_layers(selections, recolor_threshold):
     else:
         lines.append("(leer)")
 
+    #recoloring
+    results = recolor_targets_greedy(recolor_colors, keep_colors, recolor_threshold, k_directions = 32, pad=1.02, step_ring =1.0, step_push =0.75, max_push =120)
 
+    lines.append("\n=== Results (per target) ===")
+    if results:
+        for res in results:
+            tgt = res['target']
+            status = res['status']
+            if status != 'ok' or res['best'] is None:
+                lines.append(
+                    f"- {tgt['name']} | {tgt['renderer']} | {tgt['label']} → status={status}"
+                )
+                continue
+            best = res['best']
+            new_hex = lab_to_hex(best['lab'])
+            lines.append(
+                f"- {tgt['name']} | {tgt['renderer']} | {tgt['label']} → "
+                f"new_lab={[round(float(x),2) for x in best['lab']]} | new_hex={new_hex} | "
+                f"min_de={best['min_de']:.2f} | reserve={best['reserve']:.2f} | "
+                f"sem={best['sem']:.2f} | dL={best['dL']:.2f} | feasible={best['feasible']}"
+            )
+    else:
+        lines.append("(leer)")
 
 
 
