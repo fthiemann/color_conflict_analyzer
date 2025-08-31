@@ -334,6 +334,12 @@ def create_keeping_colors_with_cvd(selections):
                 keep_colors.extend(cieLab)
     return keep_colors
 
+def lab_to_hex(lab):
+    rgb1 = np.clip(cspace_convert(np.asarray(lab, dtype=float), "CIELab", "sRGB1"), 0, 1)
+    r, g, b = (int(round(c * 255)) for c in rgb1)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 #create list of colors to be recolored
 #input has to be layers that were ticked
 def create_recoloring_colors(selections):
