@@ -440,15 +440,178 @@ def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, 
     return (None, None)
 
 #### Outward push ####
-#push each color outwards until it is outside the threshold for all keep colors and in gamut
-#original_color: the color to be changed
-#keep_colors_by_view:
-def lab_candidates_outward_push(original_color, keep_colors_by_view):
+
+#check candidate for distance to all views (normal + cvd)
+#candidate_lab
+#keep_colors_by_view: dict with keys per view
+def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
+    min_de = float('inf')   #initialize min distance
+    candidate_lab_array = np.asarray(candidate_lab, dtype = float)
+    #normal
+    arr = keep_colors_by_view.get('normal')
+    if arr is not None and len(arr):
+        m = float(np.min(delta_e_cie2000(np.array(candidate_lab_array, ndmin = 2), arr)))
+        min_dist = min(min_de, m)
+
+    #cvds
+    candidate_rgb = cspace_convert(candidate_lab_array, "CIELab", "sRGB1")
+    for key, arr in keep_colors_by_view.items():
+        if key == 'normal' or arr is None or not len(arr):
+            continue
+        cvd_type, sev = key.split(':',1)
+        sev = int(sev)
+        cvd_space = {"name": "sRGB1+CVD", "cvd_type": cvd_type, "severity": sev}
+        candidate_cvd_rgb = cspace_convert(candidate_rgb, "sRGB1", cvd_space)
+        candidate_cvd_lab = cspace_convert(candidate_cvd_rgb, "sRGB1", "CIELab")
+        m = min(delta_e_cie2000(np.array(candidate_cvd_lab, ndmin =2), arr))
+        min_dist = (min_de, m)
+    return min_dist
+
+#pushing alongside directional vector until in gamut && outside threshold of keeping_colors
+#original_color
+#direction_lab: directional vektor
+#candidate_lab: candidate to check
+# threshold: recolorthreshold
+#keep_colors_by_view: dict with keys per view
+#step: size of steps in Lab
+#max_push: max count of steps
+def outward_push_until_free(original_color, direction_lab, candidate_lab, threshold, keep_colors_by_view, step = 0.75, max_push =120):
+    oc = np.asarray(original_color, dtype = float)
+    v = np.asarray(direction_lab, dtype =float)
+    candidate_base = np.asarray(candidate_lab, dtype = float)
+    base_offset = candidate_base - oc
+    candidate = candidate_base.copy()
+    
+    t_add = 0.0 #distance outside of sphere
+    for _ in range (max_push):
+        #gamut check
+        if not in_gamut_sRGB(cspace_convert(candidate, "CIELab", "sRGB1")):
+            return None
+        min_de = lab_candidates_min_distance_all_views(candidate, keep_colors_by_view)  #smallest distance to all kept colors + cvds
+        #smallest distance to kept colors + cvds > threshold --> valid candidate
+        if min_de >= threshold:
+            return candidate
+        #otherwise go a step further outside
+        t_add += step
+        candidate = original_color + t_add * direction_lab + base_offset
+    return None
+
+#### build candidates ####
+
+#helpful dict for easier access later
+def build_keep_arrays_by_view(keep_colors):
+    output = {}
+    for item in keep_colors:
+        key = 'normal' if item.get('cvd', 'normal') == 'normal' else f"{item['cvd']}:{int(item.get('severity', 0))}"
+        output.setdefault(key, []).append(np.array(item['cieLab'], dtype = float))
+    for k in list (output.keys()):
+        output[k] = np.vstack(output[k]) if len(output[k]) else np.empty((0,3))
+    return output
+
+
+#target_item: recolor_color
+#keep_colors
+#threshold: recolorthreshold
+#kdirections: count of directions used in direction search
+#pad: padding around sphere
+#step_ring: size of step
+def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0):
+    target_item_lab = np.array(target_item['cieLab'], dtype = float)
+    keep_by_view = build_keep_arrays_by_view(keep_colors)
+
+    candidates = []
+    for v in golden_sphere_directions(k_directions):
+        x0, t0 = get_step_outside_sphere(target_item_lab,  v, threshold, step = step_ring, pad = pad)
+        if x0 is None:
+            continue
+        x = outward_push_until_free(target_item_lab, v, x0, threshold, keep_by_view)
+        if x is not None:
+            candidates.append(x)
+    return candidates
+
+
+def semantic_delta(original_lab, candidate_lab):
+    return float(delta_e_cie2000(np.asarray(original_lab, dtype = float)[None, :], np.asarray(candidate_lab, dtype = float)[None, :])[0,0])
+
+def score_candidate(candidate_lab, original_lab, keep_by_view, threshold):
+
+    min_de = lab_candidates_min_distance_all_views(candidate_lab, keep_by_view)
+    reserve = float(min_de - threshold)
+    sem = semantic_delta(original_lab, candidate_lab)
+    dL = float(abs(candidate_lab[0] - original_lab[0]))
+    return {'lab': np.asarray(candidate_lab, dtype = float), 'min_de': float(min_de), 'reserve': reserve, 'sem': sem, 'dL': dL, 'feasible': bool(min_de >= threshold),}
 
 
 
+def choose_best_candidate_for_target(target_item, candidates, keep_by_view, threshold):
+    if not candidates  :
+        return None
+    
+    target_lab = np.asarray(target_item.get('cieLab'), dtype = float)
+    scored = [score_candidate(cand, target_lab, keep_by_view, threshold) for cand in candidates]
+    feasible = [s for s in scored if s['feasible']]
+    if feasible:
+        feasible.sort(key=lambda s: (-s['reserve'], s['sem'], s['dL']))
+        return feasible[0]
+    #Fallback, adds best close-to-feasible-case
+    scored.sort(key=lambda s: (-s['min_de'], s['sem'], s['dL']))
+    return scored[0]
+
+#if multible colors to be recolored, add already recolored color to keep_colors/keep_by_view
+def add_candidate_to_keep_by_view(keep_by_view, candidate_lab):
+    candidate = np.asarray(candidate_lab, dtype = float)
+
+    #normal
+    if 'normal' not in keep_by_view or keep_by_view['normal'].size == 0:
+        keep_by_view['normal'] = candidate[None,:]
+    else:
+        keep_by_view['normal'] = np.vstack([keep_by_view['normal'], candidate[None,:]])
+    
+    #cvds
+    candidate_rgb = cspace_convert(candidate,"CIELab", "sRGB1")
+    for key in list(keep_by_view.keys()):
+        if key == 'normal':
+            continue
+        cvd_type, sev = key.split(':',1)
+        spec = {"name": "sRGB1+CVD", "cvd_type": cvd_type, "severity": int(sev)}
+        candidate_cvd_rgb = cspace_convert(candidate_rgb, "sRGB1", spec)
+        candidate_cvd_lab = cspace_convert(candidate_cvd_rgb, "sRGB1", "CIELab")
+        keep_by_view[key] = np.vstack([keep_by_view[key], candidate_cvd_lab[None,:]])
 
 
+def difficulty_of_target(original_lab, keep_by_view):
+    return lab_candidates_min_distance_all_views(np.asarray(original_lab, dtype = float), keep_by_view)
+
+def recolor_targets_greedy(target_items, keep_colors, threshold, kdirections = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 120):
+    results = []
+
+    keep_by_view = build_keep_arrays_by_view(keep_colors)
+
+    #sort to-be-recolored-colors for their closeness to other colors
+    targets_sorted = sorted(target_items, key=lambda it: difficulty_of_target(np.asarray(it.get('cieLab', it.get('cielab')), dtype=float), keep_by_view))
+
+    for target in targets_sorted:
+        #generate candidates
+        candidates = generate_ring_candidates_for_target(target, keep_colors,threshold, kdirections = kdirections, pad = pad, step_ring = step_ring)
+        if not candidates:
+            results.append({'target': target, 'best': None, 'status': 'no-candidate'})
+            continue
+
+        #scoring + best choice
+        best = choose_best_candidate_for_target(target, candidates, keep_by_view, threshold)
+        if best is None:
+            results.append({'target': target, 'best': None, 'status': 'no-feasible'})
+            continue
+        
+        #found candidate and appended
+        results.append({'target': target, 'best': best, 'status': 'ok'})
+
+        #add best candidate to keep_colors
+        add_candidate_to_keep_by_view(keep_by_view, best['lab'])
+
+    return results
+
+                            
 
 
 
