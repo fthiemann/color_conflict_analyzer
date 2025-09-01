@@ -79,7 +79,7 @@ class DialogPageInput(QDialog):
         <p>
         This tool analyzes the colors of layers in the QGIS project for potential
         conflicts that may occur for people with color vision deficiencies (CVD),
-        and helps prepare targeted recoloring of layers or individual categories.
+        and provides automated recoloring to improve accessibility.
         </p>
 
         <h4>Simulated Color Vision Deficiencies</h4>
@@ -108,8 +108,12 @@ class DialogPageInput(QDialog):
             on how to interpret the results.</li>
         <li><b>Select categories for recoloring:</b> After analysis, a list of selectable
             entries appears in the format <code>Layer|Label|Renderer</code>. Check the
-            categories you want to adjust and click <i>Recolor</i>.
-            (Currently a placeholder – the actual recoloring logic will follow.)</li>
+            categories you want to adjust and click <i>Recolor</i>.</li>
+        <li><b>Automatic duplication &amp; recoloring:</b> The plugin will duplicate the
+            analyzed layers you selected, apply recolored styles to the duplicates,
+            and group them under <i>CVD Recolored</i> in the layer tree. This lets you
+            immediately compare the original and recolored versions without manually
+            editing symbology.</li>
         </ol>
 
         <h4>Output Formats</h4>
@@ -130,11 +134,16 @@ class DialogPageInput(QDialog):
         <h4>Notes</h4>
         <ul>
         <li>The ΔE threshold controls the sensitivity of conflict detection.</li>
-        <li>The <i>Recolor</i> button is currently a placeholder: it only lists what
-            would be changed. Actual recoloring functionality will be implemented
-            in the next step.</li>
+        <li>The <i>Recolor</i> button now performs automatic recoloring by generating
+            new candidate colors that maximize distance from all kept colors (including
+            CVD simulations). Only candidates above the threshold are accepted.</li>
+        <li>Duplicated, recolored layers are placed in a dedicated group for easy
+            comparison. The original layers remain unchanged.</li>
+        <li>Supported renderers: <i>single symbol</i>, <i>categorized</i>, and
+            <i>graduated</i>. Other renderer types are ignored.</li>
         </ul>
         """)
+
 
 
 
