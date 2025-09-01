@@ -5,9 +5,10 @@ import numpy as np
 from colormath.color_objects import LabColor
 #from colormath.color_diff import delta_e_cie2000
 from collections import defaultdict
-from qgis.core import QgsProject
+from qgis.core import QgsProject, QgsVectorLayer, QgsRendererCategory, QgsRendererRange, QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer
 from math import sqrt, cos, sin, pi
 from skimage.color import deltaE_ciede2000 as delta_e_cie2000
+from qgis.PyQt.QtGui import QColor
 
 ########################
 #colSpaces
@@ -332,17 +333,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 
 #create list of colors to keep + cvd simulations
 #input has to be the layers, that were not ticked
-# def create_keeping_colors_with_cvd(unselected_layers):
-#     #colors to keep
-#     keep_colors = []
-#     cvd_spaces = create_cvd_spaces()
-#     for item in unselected_layers:
-#         if item:
-#             for cvd_space in cvd_spaces:
-#                 cieLab = hexToCieLab(item, cvd_space)
-#                 keep_colors.extend(cieLab)
 
-#     return keep_colors
 def create_keeping_colors_with_cvd_from_all_layers(selections, universe_layers):
     selected = defaultdict(set)
     for s in selections:
@@ -380,6 +371,7 @@ def lab_to_hex(lab):
     rgb1 = np.clip(cspace_convert(np.asarray(lab, dtype=float), "CIELab", "sRGB1"), 0, 1)
     r, g, b = (int(round(c * 255)) for c in rgb1)
     return f"#{r:02x}{g:02x}{b:02x}"
+
 
 
 #create list of colors to be recolored
@@ -718,11 +710,111 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 
 
                             
 
+########################
+#Duplicate items in layer list
+########################
+
+#convert results to { layer_id: { label -> new_hex } }
+def build_changes_by_layer(results):
+    changes = {}
+    for result in results:
+        if result.get('status') != 'ok' or not result.get('best'):
+            continue
+        target = result['target']
+        layer_id = target['layer_id']
+        label = target['label']
+        best = result.get('best') or {}
+        new_hex = best.get('hex')
+        if not new_hex:
+            lab = best.get('lab')
+            new_hex = lab_to_hex(lab)
+        changes.setdefault(layer_id, {})[label] = new_hex
+    return changes
 
 
+def apply_colors_to_clone(clone_layer, label_to_hex):
+    clone_r = clone_layer.renderer()
+    clone_r_type = clone_r.type() if hasattr(clone_r, "type") else""
+    if clone_r_type == "singleSymbol":
+        hexcode = label_to_hex.get("single Symbol")
+        if hexcode:
+            sym = clone_r.symbol().clone()
+            sym.setColor(QColor(hexcode))
+            clone_r.setSymbol(sym)
+            clone_layer.setRenderer(clone_r)
 
+    elif clone_r_type == "categorizedSymbol":
+        categories = clone_r.categories()
+        new_categories = []
+        changed =False
+        for c in categories:
+            hexcode = label_to_hex.get(c.label())
+            sym = c.symbol().clone()
+            if hexcode:
+                sym.setColor(QColor(hexcode))
+                changed = True
+            new_categories.append(QgsRendererCategory(c.value(), sym, c.label()))
+        if changed:
+            try:
+                class_attr = clone_r.classAttribute()
+            except:
+                class_attr = ""
+            new_renderer = QgsCategorizedSymbolRenderer(class_attr, new_categories)
+            clone_layer.setRenderer(new_renderer)
 
+    elif clone_r_type == "graduatedSymbol":
+        ranges = clone_r.ranges()
+        new_ranges = []
+        changed =False
+        for rng in ranges:
+            hexcode = label_to_hex.get(rng.label())
+            sym = rng.symbol().clone()
+            if sym is None:
+                new_ranges.append(rng)
+                continue
+            if hexcode:
+                sym.setColor(QColor(hexcode))
+                changed = True
+            new_ranges.append(QgsRendererRange(float(rng.lowerValue()), float(rng.upperValue()), sym, rng.label()))
+        if changed:
+            #building a new renderer
+            class_attr = clone_r.classAttribute()
+            new_renderer = QgsGraduatedSymbolRenderer(class_attr, new_ranges)
+            try:
+                new_renderer.setModer(clone_r.Mode())
+            except Exception:
+                pass
+            clone_layer.setRenderer(new_renderer)
 
+    
+    clone_layer.triggerRepaint()
+
+#duplicate each analyzed layer, apply the colors and put the clones into a subgroup
+def duplicate_analyzed_layers_and_apply(analyzed_layer_ids, changes_by_layer, group_name = "CVD Recolored"):
+    if not analyzed_layer_ids:
+        return
+    proj = QgsProject.instance()
+    all_layers = proj.mapLayers()
+
+    #create group
+    root = proj.layerTreeRoot()
+    group = root. findGroup(group_name)
+    if group is None:
+        group = root.insertGroup(0, group_name)
+    
+    for layer_id in analyzed_layer_ids:
+        layer = all_layers.get(layer_id)
+        #clone layer
+        clone = layer.clone()
+        clone.setName(f"{layer.name()} [CVD optimized]")
+        #add clone to project
+        proj.addMapLayer(clone, False)
+        #apply recolor for layer if needed
+        label_to_hex = changes_by_layer.get(layer_id, {})
+        if label_to_hex:
+            apply_colors_to_clone(clone, label_to_hex)
+        #add clone to group
+        group.insertLayer(0, clone)
 
 
 
@@ -810,7 +902,14 @@ def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
             )
     else:
         lines.append("(leer)")
-
+    
+    #duplicate and group
+    try: 
+        changes_by_layer = build_changes_by_layer(results)
+        duplicate_analyzed_layers_and_apply(analyzed_layer_ids, changes_by_layer, group_name="CVD Recolored")
+        lines.append("\n✓ Duplicated analyzed layers into group 'CVD Recolored' and applied recolored styles.")
+    except Exception as e:
+        lines.append(f"\n⚠️ Could not duplicate/apply recolors automatically: {e}")
 
     #debugging
     print(f"\n=== DEBUG: Starting recoloring with threshold {recolor_threshold} ===")
