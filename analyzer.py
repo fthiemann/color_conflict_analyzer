@@ -69,7 +69,10 @@ def hexToCieLab(layer, cvdSpace):
         #convert to RGB 0-1 values
         rgb1 = matcolors.hex2color(hexcode)
         #convert to CVD color
-        simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
+        if cvdSpace.get('cvd_type', 'normal') == 'normal':
+            simulated_rgb1 = rgb1
+        else:
+            simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
         #convert to CIE-LAB
         cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
         col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'singleSymbol', 'label': 'single Symbol', 'cieLab': cieLab, 'CVD': cvdSpace, 'severity': cvdSpace.get('severity', 0)})
@@ -82,7 +85,10 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
+            if cvdSpace.get('cvd_type', 'normal') == 'normal':
+                simulated_rgb1 = rgb1
+            else:
+                simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'categorizedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace,  'severity': cvdSpace.get('severity', 0)})
@@ -96,7 +102,10 @@ def hexToCieLab(layer, cvdSpace):
             #convert to RGB 0-1 values
             rgb1 = matcolors.hex2color(hexcode)
             #convert to CVD color
-            simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
+            if cvdSpace.get('cvd_type', 'normal') == 'normal':
+                simulated_rgb1 = rgb1
+            else:
+                simulated_rgb1 = cspace_convert(rgb1, "sRGB1", cvdSpace)
             #convert to CIE-LAB
             cieLab = cspace_convert(simulated_rgb1, "sRGB1", "CIELab")
             col_list.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': 'graduatedSymbol', 'label': label, 'cieLab': cieLab, 'CVD': cvdSpace,  'severity': cvdSpace.get('severity', 0)})
@@ -175,9 +184,10 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
                 for item1 in list1:
                     for item2 in list2:
                         #calculate the distance in CIELab
-                        lab1 = LabColor(lab_l=item1['cieLab'][0], lab_a=item1['cieLab'][1], lab_b=item1['cieLab'][2])
-                        lab2 = LabColor(lab_l=item2['cieLab'][0], lab_a=item2['cieLab'][1], lab_b=item2['cieLab'][2])
-                        delta_e = delta_e_cie2000(lab1, lab2)
+                        lab1 = np.array(item1['cieLab'])
+                        lab2 = np.array(item2['cieLab'])
+                        delta_e_result = delta_e_cie2000(lab1[None,:], lab2[None,:])
+                        delta_e = float(delta_e_result.flat[0])
                         
                         # if conflict, add to list
                         if delta_e < conflict_threshold:
@@ -201,9 +211,10 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
                         continue
 
                     # Farbabstand berechnen
-                    lab1 = LabColor(*item1['cieLab'])
-                    lab2 = LabColor(*item2['cieLab'])
-                    delta_e = delta_e_cie2000(lab1, lab2)
+                    lab1 = np.array(item1['cieLab'])
+                    lab2 = np.array(item2['cieLab'])
+                    delta_e_result = delta_e_cie2000(lab1[None,:], lab2[None,:])
+                    delta_e = float(delta_e_result.flat[0])
 
                     if delta_e < conflict_threshold:
                         conflicts.append({
@@ -321,17 +332,48 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
 
 #create list of colors to keep + cvd simulations
 #input has to be the layers, that were not ticked
-def create_keeping_colors_with_cvd(selections):
-    #colors to keep
-    keep_colors = []
+# def create_keeping_colors_with_cvd(unselected_layers):
+#     #colors to keep
+#     keep_colors = []
+#     cvd_spaces = create_cvd_spaces()
+#     for item in unselected_layers:
+#         if item:
+#             for cvd_space in cvd_spaces:
+#                 cieLab = hexToCieLab(item, cvd_space)
+#                 keep_colors.extend(cieLab)
+
+#     return keep_colors
+def create_keeping_colors_with_cvd_from_all_layers(selections, universe_layers):
+    selected = defaultdict(set)
+    for s in selections:
+        selected[s['layer_id']].add(s['label'])
+
+    keep_colors =[]
     cvd_spaces = create_cvd_spaces()
-    for item in selections:
-        layer_id = item['layer_id']
-        layer = QgsProject.instance().mapLayer(layer_id)
-        if layer:
+
+    for layer in universe_layers:
+        renderer = layer.renderer().type()
+        keep_entries = []
+
+        if renderer == 'singleSymbol':
+            if layer.id() not in selected:
+                keep_entries.append(('single Symbol', layer.renderer().symbol().color().name()))
+        elif renderer == 'categorizedSymbol':
+            for cat in layer.renderer().categories():
+                if cat.label() not in selected.get(layer.id(), set()):
+                    keep_entries.append((cat.label(),cat.symbol().color().name()))
+        elif renderer == 'graduatedSymbol':
+            for rng in layer.renderer().ranges():
+                if rng.label() not in selected.get(layer.id(), set()):
+                    keep_entries.append((rng.label(),rng.symbol().color().name()))
+        
+        #convert these keep entries for each cvd
+        for label, hexcode in keep_entries:
+            rgb1 = matcolors.hex2color(hexcode)
             for cvd_space in cvd_spaces:
-                cieLab = hexToCieLab(layer, cvd_space)
-                keep_colors.extend(cieLab)
+                rgb_sim = rgb1 if cvd_space.get('cvd_type', 'normal') == 'normal' else cspace_convert(rgb1, "sRGB1", cvd_space)
+                cieLab = cspace_convert(rgb_sim, "sRGB1", "CIELab")
+                keep_colors.append({'layer_id': layer.id(), 'name': layer.name(), 'renderer': renderer,'label': label, 'cieLab': cieLab, 'CVD': cvd_space, 'severity': cvd_space.get('severity',0)})
     return keep_colors
 
 def lab_to_hex(lab):
@@ -361,7 +403,7 @@ def create_recoloring_colors(selections):
                     hexcode = graduated.symbol().color().name()
         rgb1 = matcolors.hex2color(hexcode)
         cieLab = cspace_convert(rgb1, "sRGB1", "CIELab")
-        recolor_colors.append({'layer_id': item_layer.id(), 'name': item_layer.name(), 'renderer': item['renderer'], 'label': item['label'], 'cieLab': cieLab, 'cvd': "normal", 'severity': 0, 'hex': hexcode})
+        recolor_colors.append({'layer_id': item_layer.id(), 'name': item_layer.name(), 'renderer': item['renderer'], 'label': item['label'], 'cieLab': cieLab, 'CVD': "normal", 'severity': 0, 'hex': hexcode})
     return recolor_colors
                     
 #reverse selection to get unselected layers
@@ -417,7 +459,8 @@ def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, 
         if not in_gamut_sRGB(candidate_rgb1):
             return (None, None)   #if it goes out of gamut, stop searching in this direction, diregarding re-entry (not likely)
         #distance to original color
-        delta_e_to_original = float(delta_e_cie2000(oc[None,:], candidate_lab[None,:])[0,0])
+        delta_result = delta_e_cie2000(oc[None,:], candidate_lab[None,:])
+        delta_e_to_original = float(np.asarray(delta_result).item())
         if delta_e_to_original >= threshold:
             #if after first step outside sphere, return a small distance
             if last_ok is None:
@@ -433,7 +476,8 @@ def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, 
                 if not in_gamut_sRGB(cspace_convert(mid_cieLab, "CIELab", "sRGB1")):
                     t_high = t_mid
                     continue
-                if float(delta_e_cie2000(oc[None,:], mid_cieLab[None,:])[0,0]) >= threshold:
+                mid_delta_result = delta_e_cie2000(oc[None,:], mid_cieLab[None,:])
+                if float(np.asarray(mid_delta_result).item()) >= threshold:
                     t_high = t_mid
                 else:
                     t_low = t_mid
@@ -455,11 +499,14 @@ def get_step_outside_sphere(original_color, direction, threshold, t_max = 50.0, 
 def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
     min_de = float('inf')   #initialize min distance
     candidate_lab_array = np.asarray(candidate_lab, dtype = float)
+    total_comparisons = 0
     #normal
     arr = keep_colors_by_view.get('normal')
     if arr is not None and len(arr):
-        m = float(np.min(delta_e_cie2000(np.array(candidate_lab_array, ndmin = 2), arr)))
+        delta_result = delta_e_cie2000(np.array(candidate_lab_array, ndmin = 2), arr)
+        m = float(np.min(np.asarray(delta_result)))
         min_de = min(min_de, m)
+        total_comparisons += len(arr)
 
     #cvds
     candidate_rgb = cspace_convert(candidate_lab_array, "CIELab", "sRGB1")
@@ -469,10 +516,21 @@ def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
         cvd_type, sev = key.split(':',1)
         sev = int(sev)
         cvd_space = {"name": "sRGB1+CVD", "cvd_type": cvd_type, "severity": sev}
-        candidate_cvd_rgb = cspace_convert(candidate_rgb, "sRGB1", cvd_space)
+        if cvd_space.get('cvd_type', 'normal') == 'normal':
+            candidate_cvd_rgb = candidate_rgb
+        else:
+            candidate_cvd_rgb = cspace_convert(candidate_rgb, "sRGB1", cvd_space)
         candidate_cvd_lab = cspace_convert(candidate_cvd_rgb, "sRGB1", "CIELab")
-        m = delta_e_cie2000(np.asarray(candidate_cvd_lab, dtype = float)[None,:], arr)
-        min_de = (min_de, float(np.min(m)))
+        delta_result = delta_e_cie2000(np.asarray(candidate_cvd_lab, dtype = float)[None,:], arr)
+        m = float(np.min(np.asarray(delta_result)))
+        min_de = min(min_de, m)
+        total_comparisons += len(arr)
+    
+
+    ##
+    print(f"    Candidate Lab {candidate_lab_array} -> min distance: {min_de:.2f} from {total_comparisons} comparisons")
+    ##
+
     return min_de
 
 #pushing alongside directional vector until in gamut && outside threshold of keeping_colors
@@ -510,7 +568,10 @@ def outward_push_until_free(original_color, direction_lab, candidate_lab, thresh
 def build_keep_arrays_by_view(keep_colors):
     output = {}
     for item in keep_colors:
-        key = 'normal' if item.get('cvd', 'normal') == 'normal' else f"{item['cvd']}:{int(item.get('severity', 0))}"
+        cvd_info = item.get('CVD', {})
+        cvd_type = cvd_info.get('cvd_type', 'normal')
+        severity = cvd_info.get('severity', 0)
+        key = 'normal' if cvd_type == 'normal' else f"{cvd_type}:{int(severity)}"                                
         output.setdefault(key, []).append(np.array(item['cieLab'], dtype = float))
     for k in list (output.keys()):
         output[k] = np.vstack(output[k]) if len(output[k]) else np.empty((0,3), dtype=float)
@@ -527,7 +588,16 @@ def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_d
     target_item_lab = np.array(target_item['cieLab'], dtype = float)
     keep_by_view = build_keep_arrays_by_view(keep_colors)
 
+    ##
+    print(f"\n--- Generating candidates for {target_item['name']}|{target_item['label']} ---")
+    print(f"Target Lab: {target_item_lab}")
+    print(f"Keep arrays by view keys: {list(keep_by_view.keys())}")
+    for key, arr in keep_by_view.items():
+        print(f"  {key}: {arr.shape[0]} colors")
+    ##
+
     candidates = []
+    successful_directions = 0
     for v in golden_sphere_directions(k_directions):
         x0, t0 = get_step_outside_sphere(target_item_lab,  v, threshold, step = step_ring, pad = pad)
         if x0 is None:
@@ -535,11 +605,19 @@ def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_d
         x = outward_push_until_free(target_item_lab, v, x0, threshold, keep_by_view, step = step_push, max_push=max_push)
         if x is not None:
             candidates.append(x)
+            successful_directions += 1
+
+    ##
+    print(f"Successful directions: {successful_directions}/{k_directions}")
+    print(f"Total candidates found: {len(candidates)}")
+    ##
+
     return candidates
 
 
 def semantic_delta(original_lab, candidate_lab):
-    return float(delta_e_cie2000(np.asarray(original_lab, dtype = float)[None, :], np.asarray(candidate_lab, dtype = float)[None, :])[0,0])
+    delta_result = delta_e_cie2000(np.asarray(original_lab, dtype = float)[None, :], np.asarray(candidate_lab, dtype = float)[None, :])
+    return float(np.asarray(delta_result).item())
 
 def score_candidate(candidate_lab, original_lab, keep_by_view, threshold):
 
@@ -552,17 +630,34 @@ def score_candidate(candidate_lab, original_lab, keep_by_view, threshold):
 
 
 def choose_best_candidate_for_target(target_item, candidates, keep_by_view, threshold):
-    if not candidates  :
+    if not candidates:
+        ##
+        print(f"No candidates for {target_item['name']}|{target_item['label']}")
+        ##
         return None
     
     target_lab = np.asarray(target_item.get('cieLab'), dtype = float)
     scored = [score_candidate(cand, target_lab, keep_by_view, threshold) for cand in candidates]
     feasible = [s for s in scored if s['feasible']]
+
+    ##
+    print(f"\nScoring {len(candidates)} candidates for {target_item['name']}|{target_item['label']}:")
+    print(f"Feasible candidates: {len(feasible)}/{len(scored)}")
+    ##
+
     if feasible:
-        feasible.sort(key=lambda s: (-s['reserve'], s['sem'], s['dL']))
+        feasible.sort(key=lambda s: (s['sem'], -s['reserve'], s['dL']))
+        best = feasible[0]
+        ##
+        print(f"Best candidate: min_de={best['min_de']:.2f}, reserve={best['reserve']:.2f}, sem={best['sem']:.2f}")
+        ##
         return feasible[0]
     #Fallback, adds best close-to-feasible-case
     scored.sort(key=lambda s: (-s['min_de'], s['sem'], s['dL']))
+    best = scored[0]
+    ##
+    print(f"No feasible candidates! Best unfeasible: min_de={best['min_de']:.2f} (threshold: {threshold})")
+    ##
     return scored[0]
 
 #if multible colors to be recolored, add already recolored color to keep_colors/keep_by_view
@@ -617,6 +712,8 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 
         #add best candidate to keep_by_view
         add_candidate_to_keep_by_view(keep_by_view, best['lab'])
 
+    
+
     return results
 
                             
@@ -648,7 +745,7 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 
 
 ############## main function to recolor layers ##############
 
-def recolor_layers(selections, recolor_threshold):
+def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
     if not selections:
         return "⚠️ No items selected."
     
@@ -657,21 +754,27 @@ def recolor_layers(selections, recolor_threshold):
     lines.append("Starting recoloring...\n")
 
     all_layers = QgsProject.instance().mapLayers()
+    if analyzed_layer_ids:
+        universe_ids = set(analyzed_layer_ids)
+        universe_layers = [all_layers[lid] for lid in universe_ids if lid in all_layers]
+    else:
+        universe_layers = list(all_layers.values())
     #create list of layers that were not ticked
-    unselected_layers = create_unselected_layers(selections)
+    #unselected_layers = create_unselected_layers(selections)
                 
     #list of colors to keep + cvd simulations
     #input has to be the layers, that were not ticked
-    keep_colors = create_keeping_colors_with_cvd(unselected_layers)
+    keep_colors = create_keeping_colors_with_cvd_from_all_layers(selections, universe_layers)
     #list of colors to be recolored
     #input has to be layers that were ticked
     recolor_colors = create_recoloring_colors(selections)
+    
 
     #output info
     lines.append("Colors to be kept:")
     if keep_colors:
         for item in keep_colors:
-            if item['cvd'] == "normal":
+            if item.get('CVD', {}).get('cvd_type', 'normal') == 'normal':
                 lines.append(
                     f"- layer_name={item['name']} | renderer={item['renderer']} | label={item['label']} | ")
     else:
@@ -707,6 +810,19 @@ def recolor_layers(selections, recolor_threshold):
             )
     else:
         lines.append("(leer)")
+
+
+    #debugging
+    print(f"\n=== DEBUG: Starting recoloring with threshold {recolor_threshold} ===")
+    print(f"Number of colors to keep: {len(keep_colors)}")
+    print(f"Number of colors to recolor: {len(recolor_colors)}")
+    
+    for i, item in enumerate(keep_colors[:3]):  # Show first 3 kept colors
+        cvd_info = item.get('CVD', {})
+        print(f"Keep color {i}: {item['name']} | {item['label']} | CVD: {cvd_info.get('cvd_type', 'normal')} | Lab: {item['cieLab']}")
+    
+    for i, item in enumerate(recolor_colors):
+        print(f"Recolor {i}: {item['name']} | {item['label']} | Lab: {item['cieLab']} | Hex: {item['hex']}")
 
 
 

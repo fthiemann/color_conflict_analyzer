@@ -269,6 +269,7 @@ class DialogPageInput(QDialog):
 # Connects UI to code
     def run_analysis(self):
         ids = self.selected_layer_ids()
+        self.last_analyzed_ids = ids    #store analyzed ids to use in recoloring
         if not ids:
             self.output.setPlainText("You must select at least one layer.")
             return
@@ -285,8 +286,9 @@ class DialogPageInput(QDialog):
     def run_recoloring(self):
         selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
         try:
-            report = analyzer.recolor_layers(selections, recolor_threshold=float(self.recolorthresholdSpin.value()))
+            report = analyzer.recolor_layers(selections, recolor_threshold=float(self.recolorthresholdSpin.value()), analyzed_layer_ids = getattr(self, "last_analyzed_ids", []))
             self.output.append("\n" + report)
+            
         except Exception as e:
             self.output.append(f"\n❌ Error recoloring {e}")
 
