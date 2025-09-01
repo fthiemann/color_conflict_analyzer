@@ -300,7 +300,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         output.append("No conflicts found.")
 
     # output conflict groups
-    output.append("\n🔗 Conflict groups:")
+    output.append("\n Conflict groups:")
     if groups:
         for i, group in enumerate(groups, start=1):
             output.append(f"Group {i}: " + ", ".join(group))
@@ -308,7 +308,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         output.append("No Groups found.")
 
     #conflict summary
-    output.append("\n📊 Conflict overview per color:")
+    output.append("\n Conflict overview per color:")
     if conflicts_summary:
         for key, val in sorted(conflicts_summary.items(), key=lambda x: (-x[1]['count'], -x[1]['sum_delta'])):
             avg_delta = val['sum_delta'] / val['count']
@@ -839,7 +839,7 @@ def duplicate_analyzed_layers_and_apply(analyzed_layer_ids, changes_by_layer, gr
 
 def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
     if not selections:
-        return "⚠️ No items selected."
+        return " No items selected."
     
     #output lines
     lines = []
@@ -907,9 +907,9 @@ def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
     try: 
         changes_by_layer = build_changes_by_layer(results)
         duplicate_analyzed_layers_and_apply(analyzed_layer_ids, changes_by_layer, group_name="CVD Recolored")
-        lines.append("\n✓ Duplicated analyzed layers into group 'CVD Recolored' and applied recolored styles.")
+        lines.append("\n Duplicated analyzed layers into group 'CVD Recolored' and applied recolored styles.")
     except Exception as e:
-        lines.append(f"\n⚠️ Could not duplicate/apply recolors automatically: {e}")
+        lines.append(f"\n Could not duplicate/apply recolors automatically: {e}")
 
     #debugging
     print(f"\n=== DEBUG: Starting recoloring with threshold {recolor_threshold} ===")
