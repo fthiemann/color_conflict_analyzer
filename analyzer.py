@@ -286,7 +286,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
     ########################
 
     output = []
-    output.append("Fnished analysis:\n")
+    output.append("Finished analysis:\n")
     
     if conflicts:
         output.append("Conflicts:")
@@ -300,7 +300,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         output.append("No conflicts found.")
 
     # output conflict groups
-    output.append("\n Conflict groups:")
+    output.append("\nConflict groups:")
     if groups:
         for i, group in enumerate(groups, start=1):
             output.append(f"Group {i}: " + ", ".join(group))
@@ -308,7 +308,7 @@ def calculate_conflicts(selected_layers_ids, conflict_threshold=15.0):
         output.append("No Groups found.")
 
     #conflict summary
-    output.append("\n Conflict overview per color:")
+    output.append("\nConflict overview per color:")
     if conflicts_summary:
         for key, val in sorted(conflicts_summary.items(), key=lambda x: (-x[1]['count'], -x[1]['sum_delta'])):
             avg_delta = val['sum_delta'] / val['count']
@@ -851,9 +851,7 @@ def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
         universe_layers = [all_layers[lid] for lid in universe_ids if lid in all_layers]
     else:
         universe_layers = list(all_layers.values())
-    #create list of layers that were not ticked
-    #unselected_layers = create_unselected_layers(selections)
-                
+      
     #list of colors to keep + cvd simulations
     #input has to be the layers, that were not ticked
     keep_colors = create_keeping_colors_with_cvd_from_all_layers(selections, universe_layers)
