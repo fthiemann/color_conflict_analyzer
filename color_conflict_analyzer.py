@@ -28,6 +28,7 @@ from qgis.core import QgsProject, QgsMapLayer
 from . import analyzer
 from .resources import *
 import os.path
+from .warnings import show_graduated_warning
 
 
 
@@ -294,6 +295,22 @@ class DialogPageInput(QDialog):
     
     def run_recoloring(self):
         selections = self.selected_color_items() if hasattr(self, "selected_color_items") else []
+        
+        if not selections:
+            self.output.append("\nNo items selected for recoloring.")
+            return
+        
+        #check for graduated items to display warning
+        graduated_items = []
+        for item in selections:
+            if item.get('renderer') == 'graduatedSymbol':
+                graduated_items.append(item)
+        
+        if graduated_items:
+            if not show_graduated_warning(self):
+                self.output.append("\nRecoloring cancelled by user")
+                return
+
         try:
             report = analyzer.recolor_layers(selections, recolor_threshold=float(self.recolorthresholdSpin.value()), analyzed_layer_ids = getattr(self, "last_analyzed_ids", []))
             self.output.append("\n" + report)

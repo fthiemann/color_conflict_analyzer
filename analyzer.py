@@ -520,7 +520,7 @@ def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
     
 
     ##
-    print(f"    Candidate Lab {candidate_lab_array} -> min distance: {min_de:.2f} from {total_comparisons} comparisons")
+    #print(f"    Candidate Lab {candidate_lab_array} -> min distance: {min_de:.2f} from {total_comparisons} comparisons")
     ##
 
     return min_de
@@ -533,7 +533,7 @@ def lab_candidates_min_distance_all_views(candidate_lab, keep_colors_by_view):
 #keep_colors_by_view: dict with keys per view
 #step: size of steps in Lab
 #max_push: max count of steps
-def outward_push_until_free(original_color, direction_lab, candidate_lab, threshold, keep_colors_by_view, step = 0.75, max_push =120):
+def outward_push_until_free(original_color, direction_lab, candidate_lab, threshold, keep_colors_by_view, step = 0.75, max_push =1000):
     oc = np.asarray(original_color, dtype = float)
     v = np.asarray(direction_lab, dtype =float)
     candidate_base = np.asarray(candidate_lab, dtype = float)
@@ -581,17 +581,18 @@ def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_d
     keep_by_view = build_keep_arrays_by_view(keep_colors)
 
     ##
-    print(f"\n--- Generating candidates for {target_item['name']}|{target_item['label']} ---")
-    print(f"Target Lab: {target_item_lab}")
-    print(f"Keep arrays by view keys: {list(keep_by_view.keys())}")
-    for key, arr in keep_by_view.items():
-        print(f"  {key}: {arr.shape[0]} colors")
+    #print(f"\n--- Generating candidates for {target_item['name']}|{target_item['label']} ---")
+    #print(f"Target Lab: {target_item_lab}")
+    #print(f"Keep arrays by view keys: {list(keep_by_view.keys())}")
+    #for key, arr in keep_by_view.items():
+    #    print(f"  {key}: {arr.shape[0]} colors")
     ##
 
     candidates = []
     successful_directions = 0
+    distance_to_original_color = 5
     for v in golden_sphere_directions(k_directions):
-        x0, t0 = get_step_outside_sphere(target_item_lab,  v, threshold, step = step_ring, pad = pad)
+        x0, t0 = get_step_outside_sphere(target_item_lab,  v, distance_to_original_color, step = step_ring, pad = pad)
         if x0 is None:
             continue
         x = outward_push_until_free(target_item_lab, v, x0, threshold, keep_by_view, step = step_push, max_push=max_push)
@@ -600,8 +601,8 @@ def generate_ring_candidates_for_target(target_item, keep_colors, threshold, k_d
             successful_directions += 1
 
     ##
-    print(f"Successful directions: {successful_directions}/{k_directions}")
-    print(f"Total candidates found: {len(candidates)}")
+    #print(f"Successful directions: {successful_directions}/{k_directions}")
+    #print(f"Total candidates found: {len(candidates)}")
     ##
 
     return candidates
@@ -617,6 +618,9 @@ def score_candidate(candidate_lab, original_lab, keep_by_view, threshold):
     reserve = float(min_de - threshold)
     sem = semantic_delta(original_lab, candidate_lab)
     dL = float(abs(candidate_lab[0] - original_lab[0]))
+
+    #print(f"DEBUG score_candidate: threshold={threshold}, min_de={min_de:.2f}, reserve={reserve:.2f}")
+
     return {'lab': np.asarray(candidate_lab, dtype = float), 'min_de': float(min_de), 'reserve': reserve, 'sem': sem, 'dL': dL, 'feasible': bool(min_de >= threshold),}
 
 
@@ -624,7 +628,7 @@ def score_candidate(candidate_lab, original_lab, keep_by_view, threshold):
 def choose_best_candidate_for_target(target_item, candidates, keep_by_view, threshold):
     if not candidates:
         ##
-        print(f"No candidates for {target_item['name']}|{target_item['label']}")
+        #print(f"No candidates for {target_item['name']}|{target_item['label']}")
         ##
         return None
     
@@ -633,22 +637,22 @@ def choose_best_candidate_for_target(target_item, candidates, keep_by_view, thre
     feasible = [s for s in scored if s['feasible']]
 
     ##
-    print(f"\nScoring {len(candidates)} candidates for {target_item['name']}|{target_item['label']}:")
-    print(f"Feasible candidates: {len(feasible)}/{len(scored)}")
+    #print(f"\nScoring {len(candidates)} candidates for {target_item['name']}|{target_item['label']}:")
+    #print(f"Feasible candidates: {len(feasible)}/{len(scored)}")
     ##
 
     if feasible:
         feasible.sort(key=lambda s: (s['sem'], -s['reserve'], s['dL']))
         best = feasible[0]
         ##
-        print(f"Best candidate: min_de={best['min_de']:.2f}, reserve={best['reserve']:.2f}, sem={best['sem']:.2f}")
+        #print(f"Best candidate: min_de={best['min_de']:.2f}, reserve={best['reserve']:.2f}, sem={best['sem']:.2f}")
         ##
         return feasible[0]
     #Fallback, adds best close-to-feasible-case
     scored.sort(key=lambda s: (-s['min_de'], s['sem'], s['dL']))
     best = scored[0]
     ##
-    print(f"No feasible candidates! Best unfeasible: min_de={best['min_de']:.2f} (threshold: {threshold})")
+    #print(f"No feasible candidates! Best unfeasible: min_de={best['min_de']:.2f} (threshold: {threshold})")
     ##
     return scored[0]
 
@@ -677,7 +681,7 @@ def add_candidate_to_keep_by_view(keep_by_view, candidate_lab):
 def difficulty_of_target(original_lab, keep_by_view):
     return lab_candidates_min_distance_all_views(np.asarray(original_lab, dtype = float), keep_by_view)
 
-def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 120):
+def recolor_targets(target_items, keep_colors, threshold, k_directions = 32, pad = 1.02, step_ring = 1.0, step_push = 0.75, max_push = 1000):
     results = []
 
     keep_by_view = build_keep_arrays_by_view(keep_colors)
@@ -687,7 +691,7 @@ def recolor_targets_greedy(target_items, keep_colors, threshold, k_directions = 
 
     for target in targets_sorted:
         #generate candidates
-        candidates = generate_ring_candidates_for_target(target, keep_colors,threshold, k_directions = k_directions, pad = pad, step_ring = step_ring)
+        candidates = generate_ring_candidates_for_target(target, keep_colors,threshold, k_directions = k_directions, pad = pad, step_ring = step_ring, step_push = step_push, max_push = max_push)
         if not candidates:
             results.append({'target': target, 'best': None, 'status': 'no-candidate'})
             continue
@@ -819,22 +823,6 @@ def duplicate_analyzed_layers_and_apply(analyzed_layer_ids, changes_by_layer, gr
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ############## main function to recolor layers ##############
 
 def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
@@ -878,7 +866,7 @@ def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
         lines.append("(leer)")
 
     #recoloring
-    results = recolor_targets_greedy(recolor_colors, keep_colors, recolor_threshold, k_directions = 32, pad=1.02, step_ring =1.0, step_push =0.75, max_push =120)
+    results = recolor_targets(recolor_colors, keep_colors, recolor_threshold, k_directions = 32, pad=1.02, step_ring =1.0, step_push =0.75, max_push =120)
 
     lines.append("\n=== Results (per target) ===")
     if results:
@@ -910,16 +898,16 @@ def recolor_layers(selections, recolor_threshold, analyzed_layer_ids = None):
         lines.append(f"\n Could not duplicate/apply recolors automatically: {e}")
 
     #debugging
-    print(f"\n=== DEBUG: Starting recoloring with threshold {recolor_threshold} ===")
-    print(f"Number of colors to keep: {len(keep_colors)}")
-    print(f"Number of colors to recolor: {len(recolor_colors)}")
+    #print(f"\n=== DEBUG: Starting recoloring with threshold {recolor_threshold} ===")
+    #print(f"Number of colors to keep: {len(keep_colors)}")
+    #print(f"Number of colors to recolor: {len(recolor_colors)}")
     
-    for i, item in enumerate(keep_colors[:3]):  # Show first 3 kept colors
-        cvd_info = item.get('CVD', {})
-        print(f"Keep color {i}: {item['name']} | {item['label']} | CVD: {cvd_info.get('cvd_type', 'normal')} | Lab: {item['cieLab']}")
+    # for i, item in enumerate(keep_colors[:3]):  # Show first 3 kept colors
+    #     cvd_info = item.get('CVD', {})
+    #     print(f"Keep color {i}: {item['name']} | {item['label']} | CVD: {cvd_info.get('cvd_type', 'normal')} | Lab: {item['cieLab']}")
     
-    for i, item in enumerate(recolor_colors):
-        print(f"Recolor {i}: {item['name']} | {item['label']} | Lab: {item['cieLab']} | Hex: {item['hex']}")
+    # for i, item in enumerate(recolor_colors):
+    #     print(f"Recolor {i}: {item['name']} | {item['label']} | Lab: {item['cieLab']} | Hex: {item['hex']}")
 
 
 
