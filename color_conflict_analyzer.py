@@ -94,7 +94,7 @@ class DialogPageInput(QDialog):
         <li><b>Tritan (blue weakness/blindness)</b> – tritanomaly/tritanopia in multiple severity levels</li>
         </ul>
         <p>
-        For each variant, simulations are run at different severity levels so that
+        For each variant, simulations are run at different severity levels from 0 % (no impairment) to 100 % (complete colorblindness regarding that color) so that
         critical color pairs can be identified across a spectrum of scenarios.
         </p>
 

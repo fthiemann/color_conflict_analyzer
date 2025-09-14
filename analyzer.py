@@ -2,7 +2,6 @@
 import matplotlib.colors as matcolors
 from colorspacious import cspace_convert
 import numpy as np
-from colormath.color_objects import LabColor
 #from colormath.color_diff import delta_e_cie2000
 from collections import defaultdict
 from qgis.core import QgsProject, QgsVectorLayer, QgsRendererCategory, QgsRendererRange, QgsGraduatedSymbolRenderer, QgsCategorizedSymbolRenderer
